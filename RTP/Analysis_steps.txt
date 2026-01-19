@@ -1,0 +1,129 @@
+%% EMG analysis
+% To do: (1) Update checkEMG section with FFT plot; (2) Remove invalid EMG channels;
+
+% Inputs
+fsamp = 2000; %sample rate
+n_channels = 64; %no. of channels (n_channels often +2 because of 2 aux channels)
+IED = 8; %inter-electrode distance
+[b,a] = butter(4,[20 400]/(fsamp/2)); %filter with a 4th order, 20-400 Hz Butterworth
+checkEMG = 0; %check EMG channels? 1 = yes, 0 = no
+tqCU = 20; %cut-off frequency for torque filter (second-order low-pass Butterworth filter corrected for two passes)
+
+% Load file of interest
+% This code depends on what file type you have, how it is stored and if you want to loop through files
+
+%% Synchronisation
+% Get sync signal and crop
+sync(:,1) = []; %specify variable name where sync signal is stored
+
+% Does the sync signal go up?
+up = 1; %0 if the sync signal goes down
+voltageDiff = max(sync)-min(sync);
+if up 
+	voltageTh = voltageDiff*0.95; % or 0.05 if the sync signal goes down, not up
+	start = find(sync>=voltage*0.95,1,'first');
+	last = find(sync>=voltage*0.95,1,'last');
+else 
+	voltageTh = voltageDiff*0.05;
+	start = find(sync<=voltage*0.05,1,'first');
+	last = find(sync<=voltage*0.05,1,'last');
+end
+
+% Plot indexes when sync on are correct
+figure(1); plot(sync); line([start start],[min(sync) max(sync)]); line([last last],[min(sync) max(sync)]);
+
+%% EMG analysis
+EMG = []; %specify variable name where EMG signal/s are stored and store as column vectors!
+EMG = (start:last,:); %synchronises torque data to when sync is on
+
+Determine length of EMG signal (*may require editing depending on your data format and variable names)
+emgLength = size(EMG,1); %check if this is correct
+
+%if isfield(spikeData,'SQ_1')
+%	emgLength = EMG;
+%else
+%	emgLength = EMG;
+%end
+
+% Create empty matrix for HDEMG grid channels
+emg = NaN(n_channels,emgLength);
+
+%if tt == 1
+%	EMG = cell(1,9);
+%end
+ 
+% Put EMG data in empty matrix
+for n = 1:n_channels
+
+	emg(n,:) = EMG(:,n); 
+
+%	if isfield(spikeData,'SQ_1')
+%		emg(n,:) = spikeData.( ['SQ_' num2str(n)] ).values;
+%	else
+%       	emg(n,:) = otb.Data(:,n);
+%	end
+
+	% Check FFT of signals
+	if checkEMG
+		if c(aa) == 1
+        		EMG{1,aa}(n,:) = emg(n,:);
+        	end
+
+        	if c(aa) ~= 1
+                	EMG{1,aa}(1:n_channels,1:end+emgLength) = horzcat(EMG{1,aa},emg);
+        	end
+        end
+end
+
+% Single-differential of channels from 13x5 grid (SQ device, 64 channels) (*may require editing depending on grid)
+emgGrid = [emg(1:12,:); flipud(emg(13:25,:)); emg(26:38,:);...
+flipud(emg(39:51,:)); emg(52:64,:)]; % Rearrange
+
+	if exist('x','var')
+        	emgGrid(x,:) = 0; % Remove invalid channels
+        end
+
+emgDiff = diff(emgGrid);
+emgDiff([12 25 38 51],:) = [];
+emgDiff(sum(isnan(emgDiff),2)>0,:) = [];
+
+% Loop through channels while filtering and calculating the RMS amplitudes
+for n = 1:size(emgDiff,1)
+
+	% Filter
+	emgDiff(n,:) = filtfilt(b,a,emgDiff(n,:));
+	% RMS (250 ms for submaximal steady-state torque phase, 500 ms for MVC, 50 ms for dynamic contractions)
+        emgRMS{c(aa),aa}(n,:) = rmsDC(emgDiff(n,:),250,1,fsamp);
+	% Rectify
+	%emgRect{c(aa),aa}(n,:) = rectify(emgDiff(n,:),fsamp);
+
+end
+
+%# Notes
+%Raw surface EMG signals will have a bandwidth between 10/20-500 Hz (aim for a sampling frequency of at least 2000 Hz!)
+%First remove the DC offset by subtracting the mean of the EMG signal from itself
+%Full-wave rectified signal (absolute value - mainly used as an intermediate step before further processing as it's a noisy signal) 
+%Averaged full-wave rectified (must select appropriate window width that is dependent on the sampling rate - it is actually better to low-pass filter the signal to remove high frequency noise)
+%Linear envelope (requires full-wave rectification followed by a low-pass filter (4-10 Hz cutoff) - can be ensemble-averaged to obtain patterns (e.g. during cyclic tasks) with timing events (e.g., heel contact, TDC in cycling) to later time-normalise data)
+%Root-mean-square amplitude (best if the signal-to-noise ratio is high - need to select an appropriate window width)
+%Normalisation to MVC or M-wave is common (easier to make between-subject comparisons)
+%Integrated EMG [iEMG] (best measure of total muscular effort (area under linear envelope))
+%Power spectrum (based on the Fast Fourier Transform - useful for detecting noise and fatigue (median frequency of spectrum = 50-80 Hz)
+%Fatigue analysis (sequential Fourier - series of frequency analyses (e.g., 5-s windows) - overlap windows (e.g., by 50%) to increase resolution)
+%Conduction velocity (requires 3 electrodes in a line over a known distance (divide distance between electrodes by time difference between peaks))
+%Wavelet transform - used to denoise EMG signals, detect fatigue and feature extraction
+%Individual motor unit analysis (HDEMG signals are required, MUedit is a useful open-access software)
+%Muscle cross-talk (one muscle's electrical activity is picked up by another muscle's electrodes - can be reduced, but never eliminated, and checked via cross-correlation, but it's difficult to distinguish cross-talk from synergistic activity)
+
+%% Torque analysis
+% To do: (1) Check dominant torque frequencies with FFT plot; (2) Calculate active torque;
+TQ = []; %specify variable name where torque data is stored
+
+% Filter torque signal
+tq(:,1) = Wfilt(TQ,tqCU,'low',fsamp);
+tq = tq(start:last,1); %synchronises torque data to when sync is on
+
+% Calculate active torque
+%tqPassive = polyval(P,ang); %P1 to fit lengthening correctly
+%tqActive = tq-tqPassive;
+
